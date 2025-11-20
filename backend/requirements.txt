@@ -1,0 +1,11 @@
+fastapi
+uvicorn
+torch
+transformers
+scikit-learn
+pandas
+pydantic
+python-multipart
+passlib[bcrypt]
+python-jose[cryptography]
+sqlalchemy
