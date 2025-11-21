@@ -111,14 +111,14 @@ def read_root():
 @app.post("/predict/news", response_model=PredictionResponse)
 def api_predict_news(request: TextRequest, token: str = Depends(oauth2_scheme)):
     result = predict_news(request.text)
-    return PredictionResponse(label=result["label"], confidence=result["confidence"])
+    return PredictionResponse(label=result["label"], confidence=result["confidence"], reasons=result["reasons"])
 
 @app.post("/predict/review", response_model=PredictionResponse)
 def api_predict_review(request: TextRequest, token: str = Depends(oauth2_scheme)):
     result = predict_review(request.text)
-    return PredictionResponse(label=result["label"], confidence=result["confidence"])
+    return PredictionResponse(label=result["label"], confidence=result["confidence"], reasons=result["reasons"])
 
 @app.post("/predict/job", response_model=PredictionResponse)
 def api_predict_job(request: TextRequest, token: str = Depends(oauth2_scheme)):
     result = predict_job(request.text)
-    return PredictionResponse(label=result["label"], confidence=result["confidence"])
+    return PredictionResponse(label=result["label"], confidence=result["confidence"], reasons=result["reasons"])

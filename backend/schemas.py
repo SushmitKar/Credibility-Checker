@@ -22,3 +22,4 @@ class PredictionResponse(BaseModel):
     label: str
     confidence: float
     explanation: str | None = None
+    reasons: list[str] = []

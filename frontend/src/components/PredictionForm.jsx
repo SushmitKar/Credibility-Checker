@@ -45,7 +45,13 @@ const PredictionForm = ({ type, endpoint }) => {
     };
 
     const confidenceRaw = typeof result?.confidence === 'number' ? result.confidence : 0;
-    const confidencePercent = Math.min(Math.max(confidenceRaw, 0), 1) * 100;
+    let confidencePercent = Math.min(Math.max(confidenceRaw, 0), 1) * 100;
+
+    // If the verdict is Real/True, the confidence returned by backend is the "Fake Score" (low).
+    // We want to show confidence in the VERDICT.
+    if (result?.label === 'Real' || result?.label === 'True') {
+        confidencePercent = 100 - confidencePercent;
+    }
 
     return (
         <div className="rounded-3xl border border-white/10 bg-linear-to-b from-slate-900/60 to-slate-950/40 p-6 shadow-2xl shadow-black/30">
@@ -134,21 +140,27 @@ const PredictionForm = ({ type, endpoint }) => {
                         </div>
                     </div>
 
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="grid gap-4">
                         <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Confidence score</p>
                             <p className="mt-2 text-2xl font-bold text-white">{confidencePercent.toFixed(1)}%</p>
-                            <p className="text-xs text-white/40">Composite of stance analysis + provenance check</p>
-                        </div>
-                        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60">Recommended next step</p>
-                            <p className="mt-2 text-sm text-white/80">
-                                {result.label === 'True' || result.label === 'Real'
-                                    ? 'Archive as trusted source and notify stakeholders.'
-                                    : 'Escalate to manual review and cross-check citations.'}
-                            </p>
+                            <p className="text-xs text-white/40">Composite of ML + Rules + Fact-Check</p>
                         </div>
                     </div>
+
+                    {result.reasons && result.reasons.length > 0 && (
+                        <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-white/60 mb-3">Analysis Breakdown</p>
+                            <ul className="space-y-2">
+                                {result.reasons.map((reason, index) => (
+                                    <li key={index} className="flex items-start gap-2 text-sm text-white/80">
+                                        <span className="mt-1 block h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                                        {reason}
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    )}
                 </div>
             )}
         </div>
