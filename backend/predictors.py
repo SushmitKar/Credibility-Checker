@@ -73,41 +73,72 @@ def load_models():
 def apply_fake_news_rules(text):
     rules = {
         "fake_keywords": [
-            "cure cancer", "miracle", "aliens", "secret", "government hiding",
-            "underground city", "immortality", "teleported", "inside source"
+            "cure cancer", "miracle", "aliens", "alien", "secret", "government hiding",
+            "underground city", "immortality", "teleported", "inside source", "conspiracy",
+            "cover up", "truth they don't want you to know", "shocking discovery"
         ]
     }
     score = 0.0
     reasons = []
+    found_keywords = []
 
     for kw in rules["fake_keywords"]:
         if kw in text.lower():
-            score += 0.25
-            reasons.append(f"Suspicious keyword detected: '{kw}'")
+            found_keywords.append(kw)
+
+    if found_keywords:
+        # Cap score contribution from keywords
+        contribution = min(0.4, len(found_keywords) * 0.15)
+        score += contribution
+        reasons.append(f"Suspicious keywords detected: {', '.join(f'{k}' for k in found_keywords)} (+{contribution:.0%} risk)")
 
     return score, reasons
 
 def apply_fake_review_rules(text):
+    text_lower = text.lower()
     score = 0.0
     reasons = []
 
-    if len(text.split()) < 6:
-        score += 0.20
-        reasons.append("Review too short")
+    # 1. Too short
+    if len(text.split()) < 8:
+        contribution = 0.25
+        score += contribution
+        reasons.append(f"Review is unusually short (+{contribution:.0%} risk)")
 
+    # 2. Too many exclamation marks
     if text.count("!") >= 3:
-        score += 0.20
-        reasons.append("Too many exclamation marks")
+        contribution = 0.35
+        score += contribution
+        reasons.append(f"Multiple exclamation marks detected (+{contribution:.0%} risk)")
 
-    if text.isupper():
-        score += 0.20
-        reasons.append("All caps (shouting)")
+    # 3. Excessive positivity
+    strong_positive = [
+        "best product ever", "perfect", "absolutely perfect",
+        "life changing", "amazing amazing", "incredible deal",
+        "buy now", "highly recommend to everyone"
+    ]
+    found_positive = []
+    for phrase in strong_positive:
+        if phrase in text_lower:
+            found_positive.append(phrase)
+            
+    if found_positive:
+        contribution = 0.40
+        score += contribution
+        reasons.append(f"Exaggerated phrases: {', '.join(f'{p}' for p in found_positive)} (+{contribution:.0%} risk)")
 
-    exaggerated = ["best ever", "perfect", "life changing", "incredible deal", "absolutely amazing"]
-    for e in exaggerated:
-        if e in text.lower():
-            score += 0.20
-            reasons.append(f"Exaggerated phrase: '{e}'")
+    # 4. All caps segments
+    words = text.split()
+    if any(len(w) > 3 and w.isupper() for w in words):
+        contribution = 0.30
+        score += contribution
+        reasons.append(f"Contains ALL CAPS shouting (+{contribution:.0%} risk)")
+
+    # 5. Very unnatural repetition
+    if len(set(words)) < len(words) * 0.4:
+        contribution = 0.25
+        score += contribution
+        reasons.append(f"Unnatural repetition in review (+{contribution:.0%} risk)")
 
     return score, reasons
 
@@ -116,19 +147,20 @@ def apply_fake_job_rules(text):
     reasons = []
 
     scam_terms = [
-        "registration fee",
-        "send bank details",
-        "earn",
-        "₹",
-        "limited slots",
-        "no experience needed",
-        "work from home money"
+        "registration fee", "send bank details", "earn", "₹", "limited slots",
+        "no experience needed", "work from home money", "quick money", "investment",
+        "hiring immediately", "urgent hiring"
     ]
+    found_scam = []
 
     for term in scam_terms:
         if term in text.lower():
-            score += 0.25
-            reasons.append(f"Scam indicator: '{term}'")
+            found_scam.append(term)
+            
+    if found_scam:
+        contribution = min(0.5, len(found_scam) * 0.20)
+        score += contribution
+        reasons.append(f"Scam indicators: {', '.join(f'{t}' for t in found_scam)} (+{contribution:.0%} risk)")
 
     return score, reasons
 
@@ -161,15 +193,14 @@ def check_news_source_with_mbc(text):
         }
 
         score = mapping.get(reliability, 0.0)
-        reason = f"MediaBiasFactCheck rating: {reliability}"
+        sign = "+" if score > 0 else ""
+        reason = f"MediaBiasFactCheck rating: {reliability} ({sign}{score:.0%} risk)"
 
         return score, [reason]
 
     except Exception as e:
         # API seems to be down or invalid, return empty to not affect score
         return 0.0, []
-
-import os
 
 def check_google_fact_check(text):
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -194,7 +225,6 @@ def check_google_fact_check(text):
         rating = claim_review.get("textualRating", "Unknown")
         
         score = 0.0
-        reason = f"Google Fact Check ({publisher}): {rating}"
         
         # Simple heuristic for rating
         rating_lower = rating.lower()
@@ -204,6 +234,9 @@ def check_google_fact_check(text):
             score = -0.4 # Strong signal for real
         elif "mixture" in rating_lower or "misleading" in rating_lower:
             score = 0.2
+            
+        sign = "+" if score > 0 else ""
+        reason = f"Google Fact Check ({publisher}): {rating} ({sign}{score:.0%} risk)"
             
         return score, [reason]
 
@@ -220,14 +253,10 @@ def predict_news(text: str):
         probs = torch.nn.functional.softmax(outputs.logits, dim=-1)
         confidence, predicted_class = torch.max(probs, dim=-1)
     
-    # Assuming 3 classes: 0=True, 1=Misleading, 2=Fake (Adjust based on actual training)
-    # User said: True / Misleading / Fake. I will map indices to these.
-    # NOTE: This mapping might need adjustment based on how it was trained.
+    # Assuming 3 classes: 0=True, 1=Misleading, 2=Fake
     labels = ["True", "Misleading", "Fake"] 
     
     # Calculate ML Score (0-1)
-    # If predicted class is Fake (2), confidence is high. If True (0), confidence of Fake is low.
-    # Let's normalize to a "Fake Score"
     ml_fake_score = 0.0
     if predicted_class.item() == 2: # Fake
         ml_fake_score = float(confidence.item())
@@ -236,7 +265,7 @@ def predict_news(text: str):
     else: # True
         ml_fake_score = 1.0 - float(confidence.item())
 
-    ml_reason = f"AI Model analysis indicates {labels[predicted_class.item()]} content with {confidence.item():.1%} confidence."
+    ml_reason = f"Base AI Model risk score: {ml_fake_score:.1%}"
 
     # Apply Rules
     rule_score, rule_reasons = apply_fake_news_rules(text)
@@ -253,6 +282,24 @@ def predict_news(text: str):
 
     prediction = "FAKE" if final_score >= 0.6 else "REAL"
     
+    # Override for Science News
+    science_keywords = [
+        "research", "isro", "nasa", "study", "scientists",
+        "experiment", "analysis", "data", "mission"
+    ]
+
+    if any(word in text.lower() for word in science_keywords):
+        if prediction == "FAKE" and final_score < 0.80:
+            prediction = "REAL"
+            final_score = round(final_score * 0.5, 3)
+            reasons = [ml_reason] + rule_reasons + mbc_reasons + google_reasons
+            reasons.append("Scientific report detected — overriding weak fake prediction.")
+            return {
+                "label": prediction, 
+                "confidence": final_score, 
+                "reasons": reasons
+            }
+    
     return {
         "label": prediction, 
         "confidence": final_score, 
@@ -266,10 +313,6 @@ def predict_review(text: str):
     # Transform text
     text_vectorized = review_tfidf.transform([text])
     prediction = review_rf.predict(text_vectorized)[0]
-    # Assuming binary: 0=Real, 1=Fake or vice versa. 
-    # User said: Real / Fake.
-    # Usually 0 is Real, 1 is Fake or vice versa. I'll assume 0=Real, 1=Fake for now.
-    # Ideally I'd check probability if RF supports it.
     
     try:
         probs = review_rf.predict_proba(text_vectorized)
@@ -281,14 +324,13 @@ def predict_review(text: str):
         ml_fake_score = 1.0 if prediction == 1 else 0.0
         
     ml_label = "Fake" if ml_fake_score > 0.5 else "Real"
-    ml_reason = f"AI Model analysis indicates {ml_label} review with {confidence:.1%} confidence."
+    ml_reason = f"Base AI Model risk score: {ml_fake_score:.1%}"
 
     # Apply Rules
     rule_score, rule_reasons = apply_fake_review_rules(text)
 
     # Final Score
-    final_score = ml_fake_score + rule_score
-    final_score = max(0.0, min(final_score, 1.0))
+    final_score = min(1.0, ml_fake_score + rule_score)
 
     label = "Fake" if final_score >= 0.6 else "Real"
     
@@ -314,7 +356,7 @@ def predict_job(text: str):
     # Calculate ML Fake Score
     ml_fake_score = float(confidence.item()) if predicted_class.item() == 1 else (1.0 - float(confidence.item()))
 
-    ml_reason = f"AI Model analysis indicates {labels[predicted_class.item()]} job posting with {confidence.item():.1%} confidence."
+    ml_reason = f"Base AI Model risk score: {ml_fake_score:.1%}"
 
     # Apply Rules
     rule_score, rule_reasons = apply_fake_job_rules(text)
